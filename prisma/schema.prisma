@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+}
+
+// Bảng Người dùng (Chứa cả Giảng viên và Sinh viên)
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  fullName  String
+  role      String   // Sẽ lưu là "STUDENT" hoặc "TEACHER"
+  teams     Team[]   
+}
+
+// Bảng Lớp học phần
+model Class {
+  id          Int      @id @default(autoincrement())
+  classCode   String   @unique
+  className   String
+  teacherId   Int
+  teams       Team[]
+}
+
+// Bảng Nhóm đồ án
+model Team {
+  id          Int          @id @default(autoincrement())
+  teamName    String
+  topic       String?
+  classId     Int
+  class       Class        @relation(fields: [classId], references: [id])
+  users       User[]       // Quan hệ n-n: 1 nhóm nhiều SV, 1 SV có thể có nhiều nhóm
+  submissions Submission[]
+}
+
+// Bảng Nộp bài & Nhận xét
+model Submission {
+  id             Int      @id @default(autoincrement())
+  fileUrl        String
+  submitTime     DateTime @default(now())
+  score          Float?
+  // Sử dụng kiểu dữ liệu lớn để chứa JSON nhận xét
+  reviewComments String?  @db.NVarChar(Max) 
+  teamId         Int
+  team           Team     @relation(fields: [teamId], references: [id])
+}
