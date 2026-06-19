@@ -4,46 +4,116 @@ generator client {
 
 datasource db {
   provider = "sqlserver"
+  url      = env("DATABASE_URL")
 }
 
-// Bảng Người dùng (Chứa cả Giảng viên và Sinh viên)
+// ---------------------------------------------------------
+// 1. BẢNG NGƯỜI DÙNG (Giảng viên & Sinh viên)
+// ---------------------------------------------------------
 model User {
+  id              Int          @id @default(autoincrement())
+  email           String       @unique
+  password        String
+  fullName        String
+  role            String       // "STUDENT" hoặc "TEACHER"
+  
+  // Các mối quan hệ (Relations)
+  teachingClasses Class[]      @relation("TeacherClasses") // Dành cho Giảng viên
+  enrollments     Enrollment[] // Dành cho Sinh viên (Các lớp đã tham gia)
+  teamMemberships TeamMember[] // Dành cho Sinh viên (Thành viên nhóm nào)
+  ledTeams        Team[]       @relation("TeamLeader")     // Dành cho Sinh viên (Làm trưởng nhóm nào)
+}
+
+// ---------------------------------------------------------
+// 2. BẢNG ĐĂNG KÝ LỚP HỌC (Sinh viên tham gia Lớp nào)
+// ---------------------------------------------------------
+model Enrollment {
   id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String
-  fullName  String
-  role      String   // Sẽ lưu là "STUDENT" hoặc "TEACHER"
-  teams     Team[]   
+  studentId Int
+  classId   Int
+  joinDate  DateTime @default(now())
+
+  student   User     @relation(fields: [studentId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  class     Class    @relation(fields: [classId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@unique([studentId, classId]) // Đảm bảo 1 SV không đăng ký trùng 1 lớp 2 lần
 }
 
-// Bảng Lớp học phần
+// ---------------------------------------------------------
+// 3. BẢNG LỚP HỌC PHẦN
+// ---------------------------------------------------------
 model Class {
-  id          Int      @id @default(autoincrement())
-  classCode   String   @unique
+  id          Int          @id @default(autoincrement())
+  classCode   String       @unique // Ví dụ: DA23TTA-CNPM
   className   String
-  teacherId   Int
+  teacherId   Int          // ID của Giảng viên phụ trách
+  
+  teacher     User         @relation("TeacherClasses", fields: [teacherId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  enrollments Enrollment[]
   teams       Team[]
+  milestones  Milestone[]  // Các mốc thời gian nộp bài của lớp này
 }
 
-// Bảng Nhóm đồ án
+// ---------------------------------------------------------
+// 4. BẢNG NHÓM ĐỒ ÁN
+// ---------------------------------------------------------
 model Team {
   id          Int          @id @default(autoincrement())
   teamName    String
-  topic       String?
+  topic       String?      // Tên đề tài (Ví dụ: Website bán điện thoại)
+  status      String       @default("PENDING") // PENDING (Chờ duyệt), APPROVED (Đã duyệt), REJECTED (Từ chối)
   classId     Int
-  class       Class        @relation(fields: [classId], references: [id])
-  users       User[]       // Quan hệ n-n: 1 nhóm nhiều SV, 1 SV có thể có nhiều nhóm
+  leaderId    Int?         // ID của Trưởng nhóm
+  
+  class       Class        @relation(fields: [classId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  leader      User?        @relation("TeamLeader", fields: [leaderId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  
+  members     TeamMember[] // Danh sách thành viên
+  submissions Submission[] // Danh sách các bài đã nộp
+}
+
+// ---------------------------------------------------------
+// 5. BẢNG THÀNH VIÊN NHÓM (Tách m-n ra để dễ quản lý)
+// ---------------------------------------------------------
+model TeamMember {
+  id        Int      @id @default(autoincrement())
+  teamId    Int
+  userId    Int
+
+  team      Team     @relation(fields: [teamId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  user      User     @relation(fields: [userId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@unique([teamId, userId]) // 1 user chỉ tham gia 1 nhóm bằng 1 record duy nhất
+}
+
+// ---------------------------------------------------------
+// 6. BẢNG MỐC NỘP BÀI (Giai đoạn của Đồ án)
+// ---------------------------------------------------------
+model Milestone {
+  id          Int          @id @default(autoincrement())
+  title       String       // Ví dụ: Báo cáo Tiến độ 1, Nộp source code cuối kỳ
+  description String?      @db.NVarChar(Max)
+  dueDate     DateTime     // Hạn chót nộp bài
+  classId     Int
+  
+  class       Class        @relation(fields: [classId], references: [id], onUpdate: NoAction, onDelete: NoAction)
   submissions Submission[]
 }
 
-// Bảng Nộp bài & Nhận xét
+// ---------------------------------------------------------
+// 7. BẢNG NỘP BÀI & NHẬN XÉT
+// ---------------------------------------------------------
 model Submission {
-  id             Int      @id @default(autoincrement())
-  fileUrl        String
-  submitTime     DateTime @default(now())
+  id             Int        @id @default(autoincrement())
+  fileUrl        String     // Link Google Drive hoặc file tĩnh
+  submitTime     DateTime   @default(now())
   score          Float?
-  // Sử dụng kiểu dữ liệu lớn để chứa JSON nhận xét
-  reviewComments String?  @db.NVarChar(Max) 
+  reviewComments String?    @db.NVarChar(Max) // Giảng viên nhận xét
+  status         String     @default("SUBMITTED") // SUBMITTED (Đã nộp), LATE (Nộp trễ), GRADED (Đã chấm)
+  
   teamId         Int
-  team           Team     @relation(fields: [teamId], references: [id])
+  milestoneId    Int        // Bài nộp này thuộc đợt nào?
+  
+  team           Team       @relation(fields: [teamId], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  milestone      Milestone  @relation(fields: [milestoneId], references: [id], onUpdate: NoAction, onDelete: NoAction)
 }
